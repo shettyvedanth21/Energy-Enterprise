@@ -10,15 +10,15 @@ export default function DeviceRedirectPage() {
 
   useEffect(() => {
     if (deviceId) {
-      router.push(`/devices/${deviceId}/telemetry`);
+      router.replace(`/machines/${deviceId}`);
     }
   }, [deviceId, router]);
 
   return (
     <div className="flex items-center justify-center h-64">
       <div className="text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-zinc-900 dark:border-zinc-50 mx-auto"></div>
-        <p className="mt-4 text-zinc-600 dark:text-zinc-400">Loading...</p>
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+        <p className="mt-4 text-slate-600">Redirecting...</p>
       </div>
     </div>
   );

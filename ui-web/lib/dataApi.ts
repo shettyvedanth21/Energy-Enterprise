@@ -2,38 +2,75 @@ import { DATA_SERVICE_BASE, RULE_ENGINE_SERVICE_BASE } from "./api";
 
 /* ---------- telemetry ---------- */
 
+export interface TelemetryPoint {
+  timestamp: string;
+  [key: string]: number | string | undefined;
+}
+
 export async function getTelemetry(
   deviceId: string,
   params?: Record<string, string>
-) {
+): Promise<TelemetryPoint[]> {
+
   const query = new URLSearchParams(params || {}).toString();
 
   const url =
-    `${DATA_SERVICE_BASE}/api/data/devices/${deviceId}/telemetry` +
+    `${DATA_SERVICE_BASE}/api/v1/data/telemetry/${deviceId}` +
     (query ? `?${query}` : "");
 
   const res = await fetch(url);
 
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status} - ${text}`);
   }
 
-  return res.json();
+  const json = await res.json();
+
+  // ✅ Permanent, shape-safe normalization
+
+  // New API shape:
+  // { success, data: { items: [...] } }
+  if (json?.data?.items && Array.isArray(json.data.items)) {
+    return json.data.items;
+  }
+
+  // Older / alternate shapes
+  if (Array.isArray(json?.data)) {
+    return json.data;
+  }
+
+  if (Array.isArray(json)) {
+    return json;
+  }
+
+  return [];
 }
+
 
 /* ---------- stats ---------- */
 
-export async function getDeviceStats(deviceId: string) {
+export interface DeviceStats {
+  device_id: string;
+  [key: string]: number | string;
+}
+
+export async function getDeviceStats(deviceId: string): Promise<DeviceStats> {
+
   const res = await fetch(
-    `${DATA_SERVICE_BASE}/api/data/devices/${deviceId}/stats`
+    `${DATA_SERVICE_BASE}/api/v1/data/stats/${deviceId}`
   );
 
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status} - ${text}`);
   }
 
-  return res.json();
+  const json = await res.json();
+
+  return json.data ?? json;
 }
+
 
 /* ---------- alerts (rule-engine-service) ---------- */
 
@@ -82,7 +119,8 @@ export async function getDeviceAlerts(
   );
 
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status} - ${text}`);
   }
 
   const json = await res.json();
@@ -128,7 +166,8 @@ export async function acknowledgeAlert(
   );
 
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status} - ${text}`);
   }
 
   return res.json();
@@ -143,7 +182,8 @@ export async function resolveAlert(alertId: string) {
   );
 
   if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
+    const text = await res.text();
+    throw new Error(`HTTP ${res.status} - ${text}`);
   }
 
   return res.json();

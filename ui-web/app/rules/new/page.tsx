@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 
 import { createRule, updateRuleStatus } from "@/lib/ruleApi";
@@ -25,7 +25,7 @@ const notificationOptions = [
   { value: "telegram", label: "Telegram" },
 ];
 
-export default function CreateRulePage() {
+function CreateRuleContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const deviceIdFromUrl = searchParams.get("device_id") ?? "D1";
@@ -286,5 +286,13 @@ export default function CreateRulePage() {
         </form>
       </div>
     </div>
+  );
+}
+
+export default function CreateRulePage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <CreateRuleContent />
+    </Suspense>
   );
 }

@@ -5,27 +5,27 @@ const nextConfig: NextConfig = {
     return [
       {
         source: "/backend/device/:path*",
-        destination: "http://localhost:8000/:path*",
+        destination: "http://device-service:8000/:path*",
       },
       {
         source: "/backend/data/:path*",
-        destination: "http://localhost:8081/:path*",
+        destination: "http://data-service:8081/:path*",
       },
       {
         source: "/backend/rule-engine/:path*",
-        destination: "http://localhost:8002/:path*",
+        destination: "http://rule-engine-service:8002/:path*",
       },
 
       // analytics-service
       {
         source: "/backend/analytics/:path*",
-        destination: "http://localhost:8003/:path*",
+        destination: "http://analytics-service:8003/:path*",
       },
 
-      // ✅ data-export-service  (THIS WAS MISSING)
+      // ✅ data-export-service
       {
         source: "/backend/data-export/:path*",
-        destination: "http://localhost:8080/:path*",
+        destination: "http://data-export-service:8080/:path*",
       },
     ];
   },

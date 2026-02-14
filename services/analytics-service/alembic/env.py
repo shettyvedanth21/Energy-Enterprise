@@ -50,6 +50,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        version_table="alembic_version_analytics",
     )
 
     with context.begin_transaction():
@@ -63,15 +64,23 @@ def run_migrations_online() -> None:
     and associate a connection with the context.
 
     """
+    from src.config.settings import get_settings
+    settings = get_settings()
+    
+    configuration = config.get_section(config.config_ini_section, {})
+    configuration["sqlalchemy.url"] = settings.postgres_sync_dsn
+
     connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
+        configuration,
         prefix="sqlalchemy.",
         poolclass=pool.NullPool,
     )
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection, 
+            target_metadata=target_metadata,
+            version_table="alembic_version_analytics",
         )
 
         with context.begin_transaction():

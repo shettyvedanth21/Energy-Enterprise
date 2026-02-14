@@ -1,0 +1,668 @@
+# services:
+#   # -------------------------
+#   # INFRASTRUCTURE SERVICES
+#   # -------------------------
+
+#   postgres:
+#     image: postgres:15-alpine
+#     container_name: postgres
+#     environment:
+#       POSTGRES_USER: energy
+#       POSTGRES_PASSWORD: energy
+#       POSTGRES_DB: energy_platform
+#     ports:
+#       - "5432:5432"
+#     networks:
+#       - energy-net
+#     healthcheck:
+#       test: [ "CMD-SHELL", "pg_isready -U energy -d energy_platform" ]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+
+#   influxdb:
+#     image: influxdb:2.7-alpine
+#     container_name: influxdb
+#     environment:
+#       DOCKER_INFLUXDB_INIT_MODE: setup
+#       DOCKER_INFLUXDB_INIT_USERNAME: admin
+#       DOCKER_INFLUXDB_INIT_PASSWORD: admin123
+#       DOCKER_INFLUXDB_INIT_ORG: energy-org
+#       DOCKER_INFLUXDB_INIT_BUCKET: telemetry
+#       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: energy-token
+#       INFLUXD_HTTP_BIND_ADDRESS: :8086
+#     ports:
+#       - "8086:8086"
+#     networks:
+#       - energy-net
+#     healthcheck:
+#       test: [ "CMD", "curl", "-f", "http://localhost:8086/health" ]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+
+#   minio:
+#     image: minio/minio
+#     container_name: minio
+#     command: server /data --console-address ":9001"
+#     environment:
+#       MINIO_ROOT_USER: minio
+#       MINIO_ROOT_PASSWORD: minio123
+#     ports:
+#       - "9000:9000"
+#       - "9001:9001"
+#     networks:
+#       - energy-net
+#     healthcheck:
+#       test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+
+#   createbuckets:
+#     image: minio/mc
+#     depends_on:
+#       minio:
+#         condition: service_healthy
+#     entrypoint: >
+#       /bin/sh -c " /usr/bin/mc alias set local http://minio:9000 minio minio123; /usr/bin/mc mb local/energy-platform-datasets; /usr/bin/mc anonymous set public local/energy-platform-datasets; exit 0; "
+#     networks:
+#       - energy-net
+
+#   emqx:
+#     image: emqx/emqx:5.3.0
+#     container_name: emqx
+#     ports:
+#       - "1883:1883"
+#       - "8083:8083"
+#       - "8084:8084"
+#       - "8883:8883"
+#       - "18083:18083"
+#     networks:
+#       - energy-net
+#     environment:
+#       EMQX_ALLOW_ANONYMOUS: "true"
+#       EMQX_LOADED_PLUGINS: "emqx_retained,emqx_rule_engine,emqx_dashboard"
+#     healthcheck:
+#       test: [ "CMD", "/opt/emqx/bin/emqx", "ctl", "status" ]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+
+#   # -------------------------
+#   # BACKEND SERVICES
+#   # -------------------------
+
+#   device-service:
+#     build: ./services/device-service
+#     container_name: device-service
+#     environment:
+#       - DATABASE_URL=postgresql+asyncpg://energy:energy@postgres:5432/energy_platform
+#       - LOG_LEVEL=INFO
+#       - ENVIRONMENT=production
+#     ports:
+#       - "8000:8000"
+#     depends_on:
+#       postgres:
+#         condition: service_healthy
+#     networks:
+#       - energy-net
+#     healthcheck:
+#       test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+
+#   data-service:
+#     build: ./services/data-service
+#     container_name: data-service
+#     environment:
+#       - ENVIRONMENT=production
+#       - LOG_LEVEL=INFO
+#       - PORT=8081
+#       - HOST=0.0.0.0
+#       - MQTT_BROKER_HOST=emqx
+#       - MQTT_BROKER_PORT=1883
+#       - INFLUXDB_URL=http://influxdb:8086
+#       - INFLUXDB_TOKEN=energy-token
+#       - INFLUXDB_ORG=energy-org
+#       - INFLUXDB_BUCKET=telemetry
+#       - DEVICE_SERVICE_URL=http://device-service:8000
+#       - RULE_ENGINE_URL=http://rule-engine-service:8002
+#     ports:
+#       - "8081:8081"
+#     depends_on:
+#       influxdb:
+#         condition: service_healthy
+#       emqx:
+#         condition: service_healthy
+#       device-service:
+#         condition: service_started
+#     networks:
+#       - energy-net
+#     healthcheck:
+#       test: [ "CMD", "curl", "-f", "http://localhost:8081/api/v1/data/health" ]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+
+#   rule-engine-service:
+#     build: ./services/rule-engine-service
+#     container_name: rule-engine-service
+#     environment:
+#       - DATABASE_URL=postgresql+asyncpg://energy:energy@postgres:5432/energy_platform
+#       - LOG_LEVEL=INFO
+#       - ENVIRONMENT=production
+#     ports:
+#       - "8002:8002"
+#     depends_on:
+#       postgres:
+#         condition: service_healthy
+#     networks:
+#       - energy-net
+#     healthcheck:
+#       test: [ "CMD", "curl", "-f", "http://localhost:8002/health" ]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+
+#   analytics-service:
+#     build: ./services/analytics-service
+#     container_name: analytics-service
+#     environment:
+#       - APP_ENV=production
+#       - LOG_LEVEL=INFO
+#       - API_PORT=8003
+#       - POSTGRES_HOST=postgres
+#       - POSTGRES_PORT=5432
+#       - POSTGRES_DB=energy_platform
+#       - POSTGRES_USER=energy
+#       - POSTGRES_PASSWORD=energy
+#       - S3_ENDPOINT_URL=http://minio:9000
+#       - S3_ACCESS_KEY_ID=minio
+#       - S3_SECRET_ACCESS_KEY=minio123
+#       - S3_BUCKET_NAME=energy-platform-datasets
+#     ports:
+#       - "8003:8003"
+#     depends_on:
+#       postgres:
+#         condition: service_healthy
+#       minio:
+#         condition: service_healthy
+#     networks:
+#       - energy-net
+#     healthcheck:
+#       test: [ "CMD", "curl", "-f", "http://localhost:8003/health/live" ]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+
+#   data-export-service:
+#     build: ./services/data-export-service
+#     container_name: data-export-service
+#     environment:
+#       - ENVIRONMENT=production
+#       - LOG_LEVEL=INFO
+#       - PORT=8080
+#       - HOST=0.0.0.0
+#       - INFLUXDB_URL=http://influxdb:8086
+#       - INFLUXDB_TOKEN=energy-token
+#       - INFLUXDB_ORG=energy-org
+#       - INFLUXDB_BUCKET=telemetry
+#       - S3_ENDPOINT_URL=http://minio:9000
+#       - AWS_ACCESS_KEY_ID=minio
+#       - AWS_SECRET_ACCESS_KEY=minio123
+#       - S3_BUCKET=energy-platform-datasets
+#       - CHECKPOINT_DB_HOST=postgres
+#       - CHECKPOINT_DB_PORT=5432
+#       - CHECKPOINT_DB_NAME=energy_platform
+#       - CHECKPOINT_DB_USER=energy
+#       - CHECKPOINT_DB_PASSWORD=energy
+#       # Ensure data-service URL is correct (used as fallback or additional source)
+#       - DATA_SERVICE_URL=http://data-service:8081
+#     ports:
+#       - "8080:8080"
+#     depends_on:
+#       influxdb:
+#         condition: service_healthy
+#       minio:
+#         condition: service_healthy
+#       postgres:
+#         condition: service_healthy
+#     networks:
+#       - energy-net
+#     healthcheck:
+#       test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+
+#   reporting-service:
+#     build: ./services/reporting-service
+#     container_name: reporting-service
+#     environment:
+#       - ENVIRONMENT=production
+#       - LOG_LEVEL=INFO
+#       - PORT=8085
+#       - HOST=0.0.0.0
+#       - POSTGRES_HOST=postgres
+#       - POSTGRES_PORT=5432
+#       - POSTGRES_USER=energy
+#       - POSTGRES_PASSWORD=energy
+#       - POSTGRES_DB=energy_platform
+#       - AWS_ACCESS_KEY_ID=minio
+#       - AWS_SECRET_ACCESS_KEY=minio123
+#       - AWS_REGION=us-east-1
+#       - S3_BUCKET_NAME=energy-platform-datasets
+#       # Using MinIO via s3_endpoint_url might be tricky if boto3 expects different env vars
+#       # Checking config.py: It loads AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY
+#       # It doesn't seem to load endpoint_url directly from env as S3_ENDPOINT_URL.
+#       # Wait, src/config.py DOES NOT have S3_ENDPOINT_URL.
+#       # However, checking requirements.txt step 69: boto3, aioboto3.
+#       # Services/reporting-service/src/repositories/s3_repository.py likely needs to support endpoint_url.
+#       # BUT I cannot modify code logic unless it fails. I'll rely on AWS_ENDPOINT_URL if boto3 supports it automatically or hope it works.
+#       # Actually, modern boto3 often respects AWS_ENDPOINT_URL_S3 or similar if configured.
+#       # Let's add standard AWS SDK env vars.
+#       - AWS_ENDPOINT_URL=http://minio:9000
+#       - AWS_ENDPOINT_URL_S3=http://minio:9000
+#     ports:
+#       - "8085:8085"
+#     depends_on:
+#       postgres:
+#         condition: service_healthy
+#       minio:
+#         condition: service_healthy
+#     networks:
+#       - energy-net
+#     healthcheck:
+#       test: [ "CMD", "curl", "-f", "http://localhost:8085/health" ] # assuming /docs or health endpoint
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+
+#   # -------------------------
+#   # FRONTEND
+#   # -------------------------
+
+#   ui-web:
+#     build: ./ui-web
+#     container_name: ui-web
+#     # The frontend needs to proxy requests to backend services.
+#     # In Next.js rewrites, "localhost" refers to the container itself.
+#     # So we MUST restart the container or build with specific envs if it uses them at build time.
+#     # Wait, Next.js rewrites are server-side.
+#     # The config I saw in `next.config.ts` had:
+#     # source: "/backend/device/:path*", destination: "http://localhost:8000/:path*"
+#     # THIS IS WRONG for Docker internal networking.
+#     # But I CANNOT change source code logic?
+#     # "You are allowed to modify: ... frontend configuration if required"
+#     # YES. I MUST modify next.config.ts to use service names instead of localhost.
+#     ports:
+#       - "3000:3000"
+#     depends_on:
+#       - device-service
+#       - data-service
+#       - rule-engine-service
+#       - analytics-service
+#       - data-export-service
+#     networks:
+#       - energy-net
+#     environment:
+#       # If Next.js uses these envs, great. If not, I'll hardcode in next.config.ts.
+#       - NEXT_PUBLIC_API_URL=http://localhost:3000
+#     healthcheck:
+#       test: [ "CMD", "wget", "--spider", "http://localhost:3000" ]
+#       interval: 10s
+#       timeout: 5s
+#       retries: 5
+
+# networks:
+#   energy-net:
+#     driver: bridge
+
+
+
+
+
+#   telemetry-simulator:
+#     build: ./tools/simulator
+#     container_name: telemetry-simulator
+#     environment:
+#       - MQTT_BROKER_HOST=emqx
+#       - MQTT_BROKER_PORT=1883
+#       - DEVICE_ID=D1
+#     depends_on:
+#       emqx:
+#         condition: service_healthy
+#     networks:
+#       - energy-net
+#     profiles:
+#       - demo 
+
+
+
+
+
+
+
+
+
+services:
+  # -------------------------
+  # INFRASTRUCTURE SERVICES
+  # -------------------------
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    environment:
+      POSTGRES_USER: energy
+      POSTGRES_PASSWORD: energy
+      POSTGRES_DB: energy_platform
+    ports:
+      - "5432:5432"
+    networks:
+      - energy-net
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U energy -d energy_platform" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  influxdb:
+    image: influxdb:2.7-alpine
+    container_name: influxdb
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: admin123
+      DOCKER_INFLUXDB_INIT_ORG: energy-org
+      DOCKER_INFLUXDB_INIT_BUCKET: telemetry
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: energy-token
+      INFLUXD_HTTP_BIND_ADDRESS: :8086
+    ports:
+      - "8086:8086"
+    networks:
+      - energy-net
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8086/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio:
+    image: minio/minio
+    container_name: minio
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: minio
+      MINIO_ROOT_PASSWORD: minio123
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    networks:
+      - energy-net
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:9000/minio/health/live" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  createbuckets:
+    image: minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c " /usr/bin/mc alias set local http://minio:9000 minio minio123; /usr/bin/mc mb local/energy-platform-datasets; /usr/bin/mc anonymous set public local/energy-platform-datasets; exit 0; "
+    networks:
+      - energy-net
+
+  emqx:
+    image: emqx/emqx:5.3.0
+    container_name: emqx
+    ports:
+      - "1883:1883"
+      - "8083:8083"
+      - "8084:8084"
+      - "8883:8883"
+      - "18083:18083"
+    networks:
+      - energy-net
+    environment:
+      EMQX_ALLOW_ANONYMOUS: "true"
+      EMQX_LOADED_PLUGINS: "emqx_retained,emqx_rule_engine,emqx_dashboard"
+    healthcheck:
+      test: [ "CMD", "/opt/emqx/bin/emqx", "ctl", "status" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -------------------------
+  # BACKEND SERVICES
+  # -------------------------
+
+  device-service:
+    build: ./services/device-service
+    container_name: device-service
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://energy:energy@postgres:5432/energy_platform
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=production
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - energy-net
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8000/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  data-service:
+    build: ./services/data-service
+    container_name: data-service
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - PORT=8081
+      - HOST=0.0.0.0
+      - MQTT_BROKER_HOST=emqx
+      - MQTT_BROKER_PORT=1883
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=energy-token
+      - INFLUXDB_ORG=energy-org
+      - INFLUXDB_BUCKET=telemetry
+      - DEVICE_SERVICE_URL=http://device-service:8000
+      - RULE_ENGINE_URL=http://rule-engine-service:8002
+    ports:
+      - "8081:8081"
+    depends_on:
+      influxdb:
+        condition: service_healthy
+      emqx:
+        condition: service_healthy
+      device-service:
+        condition: service_started
+    networks:
+      - energy-net
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8081/api/v1/data/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rule-engine-service:
+    build: ./services/rule-engine-service
+    container_name: rule-engine-service
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://energy:energy@postgres:5432/energy_platform
+      - LOG_LEVEL=INFO
+      - ENVIRONMENT=production
+    ports:
+      - "8002:8002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - energy-net
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8002/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  analytics-service:
+    build: ./services/analytics-service
+    container_name: analytics-service
+    environment:
+      - APP_ENV=production
+      - LOG_LEVEL=INFO
+      - API_PORT=8003
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=energy_platform
+      - POSTGRES_USER=energy
+      - POSTGRES_PASSWORD=energy
+      - S3_ENDPOINT_URL=http://minio:9000
+      - S3_ACCESS_KEY_ID=minio
+      - S3_SECRET_ACCESS_KEY=minio123
+      - S3_BUCKET_NAME=energy-platform-datasets
+    ports:
+      - "8003:8003"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - energy-net
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8003/health/live" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  data-export-service:
+    build: ./services/data-export-service
+    container_name: data-export-service
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - PORT=8080
+      - HOST=0.0.0.0
+      - INFLUXDB_URL=http://influxdb:8086
+      - INFLUXDB_TOKEN=energy-token
+      - INFLUXDB_ORG=energy-org
+      - INFLUXDB_BUCKET=telemetry
+      - S3_ENDPOINT_URL=http://minio:9000
+      - AWS_ACCESS_KEY_ID=minio
+      - AWS_SECRET_ACCESS_KEY=minio123
+      - S3_BUCKET=energy-platform-datasets
+      - CHECKPOINT_DB_HOST=postgres
+      - CHECKPOINT_DB_PORT=5432
+      - CHECKPOINT_DB_NAME=energy_platform
+      - CHECKPOINT_DB_USER=energy
+      - CHECKPOINT_DB_PASSWORD=energy
+      - DATA_SERVICE_URL=http://data-service:8081
+    ports:
+      - "8080:8080"
+    depends_on:
+      influxdb:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - energy-net
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  reporting-service:
+    build: ./services/reporting-service
+    container_name: reporting-service
+    environment:
+      - ENVIRONMENT=production
+      - LOG_LEVEL=INFO
+      - PORT=8085
+      - HOST=0.0.0.0
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_USER=energy
+      - POSTGRES_PASSWORD=energy
+      - POSTGRES_DB=energy_platform
+      - AWS_ACCESS_KEY_ID=minio
+      - AWS_SECRET_ACCESS_KEY=minio123
+      - AWS_REGION=us-east-1
+      - S3_BUCKET_NAME=energy-platform-datasets
+      - AWS_ENDPOINT_URL=http://minio:9000
+      - AWS_ENDPOINT_URL_S3=http://minio:9000
+    ports:
+      - "8085:8085"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    networks:
+      - energy-net
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8085/health" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -------------------------
+  # FRONTEND
+  # -------------------------
+
+  ui-web:
+    build: ./ui-web
+    container_name: ui-web
+    ports:
+      - "3000:3000"
+    depends_on:
+      - device-service
+      - data-service
+      - rule-engine-service
+      - analytics-service
+      - data-export-service
+    networks:
+      - energy-net
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:3000
+    healthcheck:
+      test: [ "CMD", "wget", "--spider", "http://localhost:3000" ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # -------------------------
+  # TELEMETRY SIMULATOR (DEMO)
+  # -------------------------
+
+  telemetry-simulator:
+    build: ./tools/device-simulator
+    container_name: telemetry-simulator
+    environment:
+      - MQTT_BROKER_HOST=emqx
+      - MQTT_BROKER_PORT=1883
+      - DEVICE_ID=D1
+    depends_on:
+      emqx:
+        condition: service_healthy
+    networks:
+      - energy-net
+    profiles:
+      - demo
+
+networks:
+  energy-net:
+    driver: bridge

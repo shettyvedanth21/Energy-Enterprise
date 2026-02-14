@@ -64,7 +64,7 @@ class Settings(BaseSettings):
     def postgres_async_url(self) -> str:
         """Build async PostgreSQL connection URL."""
         return (
-            f"postgresql+asyncpg://{self.postgres_user}:{self.postgres_password}"
+            f"postgresql://{self.postgres_user}:{self.postgres_password}"
             f"@{self.postgres_host}:{self.postgres_port}/{self.postgres_db}"
         )
 

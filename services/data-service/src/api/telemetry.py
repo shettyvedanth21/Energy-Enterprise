@@ -4,17 +4,15 @@ from typing import Optional
 
 from src.services.telemetry_service import TelemetryService
 
-
 router = APIRouter()
 
 
 def get_telemetry_service() -> TelemetryService:
-    # Lazy import to avoid circular import
     from src.main import app_state
     return app_state.telemetry_service
 
 
-@router.get("/devices/{device_id}/telemetry")
+@router.get("/telemetry/{device_id}")
 async def get_device_telemetry(
     device_id: str,
     start_time: Optional[datetime] = Query(None),
@@ -30,9 +28,7 @@ async def get_device_telemetry(
     )
 
 
-
-
-@router.get("/devices/{device_id}/stats")
+@router.get("/stats/{device_id}")
 async def get_device_stats(
     device_id: str,
     start_time: Optional[datetime] = Query(None),

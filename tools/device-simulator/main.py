@@ -1,134 +1,133 @@
 """CLI entry point for device simulator."""
 import argparse
-import json
 import logging
+import os
 import sys
-from typing import Optional
 
 from config import SimulatorConfig
 from simulator import DeviceSimulator
 
 
 def setup_logging(log_level: str) -> None:
-    """Configure structured JSON logging.
-    
-    Args:
-        log_level: Logging level (DEBUG, INFO, WARNING, ERROR)
-    """
-    # Configure root logger
     logger = logging.getLogger()
     logger.setLevel(getattr(logging, log_level.upper()))
-    
-    # Create console handler with JSON formatter
+
     handler = logging.StreamHandler(sys.stdout)
     handler.setLevel(getattr(logging, log_level.upper()))
-    
-    # Use JSON formatter for structured logging
+
     formatter = logging.Formatter(
-        fmt='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
     handler.setFormatter(formatter)
-    
-    # Add handler to root logger
-    logger.addHandler(handler)
-    
-    # Suppress paho-mqtt debug logs unless DEBUG level
+
+    if not logger.handlers:
+        logger.addHandler(handler)
+
     if log_level.upper() != "DEBUG":
         logging.getLogger("paho").setLevel(logging.WARNING)
 
 
 def parse_arguments() -> SimulatorConfig:
-    """Parse command line arguments.
-    
-    Returns:
-        SimulatorConfig with parsed values
     """
+    CLI + ENV compatible configuration.
+
+    Priority:
+        CLI args  -> ENV vars -> defaults
+    """
+
+    env_device_id = os.getenv("DEVICE_ID")
+    env_broker = os.getenv("MQTT_BROKER_HOST", "localhost")
+    env_port = int(os.getenv("MQTT_BROKER_PORT", "1883"))
+    env_interval = float(os.getenv("PUBLISH_INTERVAL", "5"))
+    env_fault_mode = os.getenv("FAULT_MODE", "none")
+    env_log_level = os.getenv("LOG_LEVEL", "INFO")
+
     parser = argparse.ArgumentParser(
         description="Energy Intelligence Platform - Device Simulator",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-  python main.py --device-id D1 --interval 5
-  python main.py --device-id D1 --broker mqtt.example.com --port 1883
-  python main.py --device-id D1 --interval 2 --fault-mode overheating
-        """
     )
-    
+
     parser.add_argument(
         "--device-id",
         type=str,
-        required=True,
-        help="Device identifier (e.g., D1)"
+        default=env_device_id,
+        help="Device identifier (env: DEVICE_ID)"
     )
-    
+
     parser.add_argument(
         "--interval",
         type=float,
-        default=5.0,
-        help="Publish interval in seconds (default: 5)"
+        default=env_interval,
+        help="Publish interval in seconds (env: PUBLISH_INTERVAL)"
     )
-    
+
     parser.add_argument(
         "--broker",
         type=str,
-        default="localhost",
-        help="MQTT broker host (default: localhost)"
+        default=env_broker,
+        help="MQTT broker host (env: MQTT_BROKER_HOST)"
     )
-    
+
     parser.add_argument(
         "--port",
         type=int,
-        default=1883,
-        help="MQTT broker port (default: 1883)"
+        default=env_port,
+        help="MQTT broker port (env: MQTT_BROKER_PORT)"
     )
-    
+
     parser.add_argument(
         "--fault-mode",
         type=str,
-        default="none",
+        default=env_fault_mode,
         choices=["none", "spike", "drop", "overheating"],
-        help="Fault injection mode for testing (default: none)"
+        help="Fault mode (env: FAULT_MODE)"
     )
-    
+
     parser.add_argument(
         "--log-level",
         type=str,
-        default="INFO",
+        default=env_log_level,
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
-        help="Logging level (default: INFO)"
+        help="Logging level (env: LOG_LEVEL)"
     )
-    
+
     args = parser.parse_args()
-    
+
+    if not args.device_id:
+        raise ValueError(
+            "device-id must be provided either via --device-id or DEVICE_ID env variable"
+        )
+
     return SimulatorConfig(
         device_id=args.device_id,
         publish_interval=args.interval,
         broker_host=args.broker,
         broker_port=args.port,
         fault_mode=args.fault_mode,
-        log_level=args.log_level
+        log_level=args.log_level,
     )
 
 
 def main() -> int:
-    """Main entry point.
-    
-    Returns:
-        Exit code (0 for success, 1 for error)
-    """
     try:
-        # Parse arguments
         config = parse_arguments()
-        
-        # Setup logging
         setup_logging(config.log_level)
-        
-        # Create and start simulator
+
+        logging.getLogger(__name__).info(
+            "Starting device simulator",
+            extra={
+                "device_id": config.device_id,
+                "broker": config.broker_host,
+                "port": config.broker_port,
+                "topic": config.topic,
+            },
+        )
+
         simulator = DeviceSimulator(config)
         simulator.start()
-        
+
         return 0
-        
+
     except ValueError as e:
         logging.error(f"Configuration error: {e}")
         return 1
@@ -136,7 +135,7 @@ def main() -> int:
         logging.info("Interrupted by user")
         return 0
     except Exception as e:
-        logging.error(f"Unexpected error: {e}", exc_info=True)
+        logging.error("Unexpected error", exc_info=True)
         return 1
 
 
